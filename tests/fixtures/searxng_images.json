@@ -1,0 +1,31 @@
+{
+  "query": "cat",
+  "number_of_results": 3,
+  "results": [
+    {
+      "url": "https://page.example.com/a",
+      "title": "图片 A",
+      "img_src": "https://img.example.com/a.png",
+      "thumbnail_src": "https://thumb.example.com/a.png",
+      "width": 800,
+      "height": 600,
+      "engine": "bing images"
+    },
+    {
+      "url": "https://page.example.com/b",
+      "title": "图片 B",
+      "img_src": "https://img.example.com/b.jpg",
+      "thumbnail_src": "",
+      "width": "120",
+      "height": "80",
+      "engine": "google images"
+    },
+    {
+      "url": "",
+      "title": "缺图跳过",
+      "img_src": "",
+      "width": 0,
+      "height": 0
+    }
+  ]
+}

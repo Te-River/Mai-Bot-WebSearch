@@ -1,0 +1,21 @@
+# 运行时配置由 Runner 依据 config.py 的 config_model 生成，不进版本库
+/config.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 工具缓存
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 本地探测产物
+logs/
+*.log
+probe-*.json

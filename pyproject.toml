@@ -1,0 +1,31 @@
+# 仅用于开发工具（ruff / pytest）与本地静态检查。
+#
+# 插件运行时依赖由 _manifest.json 的 dependencies 声明，MaiBot 会自动安装，
+# 因此这里 **不声明** [project] 运行时依赖，也不要把它当作安装入口。
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# BLE：兜底捕获必须显式标注 noqa。本项目在"工具层绝不把异常泄漏给宿主"处
+# 确实需要 except Exception，打开这条规则可以保证每一处都是有意为之。
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "RUF", "BLE"]
+ignore = [
+  "E501",  # 行长由 formatter 与 review 把关
+  "RUF001",  # 中文全角标点在注释/字符串中是正常的
+  "RUF002",
+  "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.ruff.lint.isort]
+# 测试用宿主加载方式把插件目录注册成这个合成包名，视为本地模块
+known-first-party = ["mai_websearch_under_test"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,26 @@
+{
+  "query": "初音未来",
+  "number_of_results": 3,
+  "results": [
+    {
+      "url": "https://zh.moegirl.org.cn/初音未来",
+      "title": "初音未来 - 萌娘百科",
+      "content": "初音未来是 Crypton Future Media 开发的虚拟歌手。",
+      "engine": "bing",
+      "publishedDate": "2026-01-02T00:00:00"
+    },
+    {
+      "url": "https://example.com/second",
+      "title": "第二条结果",
+      "content": "第二条结果的内容摘要。",
+      "engine": "google"
+    },
+    {
+      "url": "",
+      "title": "缺少地址的条目应被跳过",
+      "content": "",
+      "engine": "duckduckgo"
+    }
+  ],
+  "infoboxes": []
+}

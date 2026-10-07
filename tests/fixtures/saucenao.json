@@ -1,0 +1,57 @@
+{
+  "header": {
+    "user_id": "12345",
+    "account_type": "1",
+    "short_limit": "4",
+    "long_limit": "100",
+    "long_remaining": 100,
+    "short_remaining": 4,
+    "status": 0,
+    "results_requested": "5",
+    "search_depth": "128",
+    "minimum_similarity": "0",
+    "results_returned": 3
+  },
+  "results": [
+    {
+      "header": {
+        "similarity": "92.15",
+        "thumbnail": "https://img.saucenao.com/thumb1.jpg",
+        "index_id": 5,
+        "index_name": "Pixiv"
+      },
+      "data": {
+        "ext_urls": ["https://www.pixiv.net/artworks/123"],
+        "title": "初音ミク",
+        "pixiv_id": 123,
+        "member_name": "画师A"
+      }
+    },
+    {
+      "header": {
+        "similarity": "41.02",
+        "thumbnail": "https://img.saucenao.com/thumb2.jpg",
+        "index_id": 9,
+        "index_name": "Danbooru"
+      },
+      "data": {
+        "ext_urls": ["https://danbooru.donmai.us/posts/456"],
+        "creator": "artist_b",
+        "source": "https://example.com/source-page"
+      }
+    },
+    {
+      "header": {
+        "similarity": "88.0",
+        "thumbnail": "",
+        "index_id": 5,
+        "index_name": "Pixiv"
+      },
+      "data": {
+        "ext_urls": [],
+        "title": "",
+        "author_name": "画师C"
+      }
+    }
+  ]
+}

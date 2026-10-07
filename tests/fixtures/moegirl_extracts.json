@@ -1,0 +1,24 @@
+{
+  "batchcomplete": "",
+  "query": {
+    "pages": {
+      "200": {
+        "pageid": 200,
+        "ns": 0,
+        "title": "初音未来(世界计划)",
+        "extract": "世界计划版初音未来的介绍文本。"
+      },
+      "100": {
+        "pageid": 100,
+        "ns": 0,
+        "title": "初音未来",
+        "extract": "初音未来（初音ミク）是由 Crypton Future Media 开发的虚拟歌手。"
+      },
+      "-1": {
+        "ns": 0,
+        "title": "不存在的条目",
+        "missing": ""
+      }
+    }
+  }
+}
