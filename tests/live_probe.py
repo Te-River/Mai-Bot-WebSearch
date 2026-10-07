@@ -39,17 +39,6 @@ READING_TARGETS = (
 # 文搜图的验证目标
 IMAGE_QUERIES = ("布偶猫", "赛博朋克城市")
 
-# 反查引擎的连通性检查目标（域名级探测，不需要图片）
-REVERSE_HOSTS = (
-    ("ascii2d", "https://ascii2d.net/"),
-    ("iqdb", "https://iqdb.org/"),
-    ("saucenao", "https://saucenao.com/"),
-    ("yandex", "https://yandex.com/images/"),
-    ("google-lens", "https://lens.google.com/"),
-    ("tineye", "https://tineye.com/"),
-    ("baidu-graph", "https://graph.baidu.com/"),
-)
-
 
 def _load_package() -> Any:
     """按宿主方式加载插件包。"""
@@ -156,29 +145,67 @@ async def _probe_images(module: Any) -> None:
 
 
 async def _probe_reverse(module: Any) -> None:
-    """探测反查引擎的连通性。
+    """探测反查引擎的**真实可用性与解析效果**（不只是连通性）。
 
-    实测结论（2026，直连）：**多数网络下没有任何可用的反查引擎**，
-    所以图搜文/图搜图的主路径是"宿主多模态通道 + 模型提取关键词后用 image_search"，
-    反查只是可选增益。换网络后重跑这一节即可知道自己能不能用。
+    这节是给"反查解析器未经本网络验证"准备的校准工具：它会先取一张真实图片，
+    再逐个跑通配好的反查引擎，报告每个引擎是"搜到几条""解析到结构"还是"不可达/被反爬"。
+    **换到可达网络后重跑这一节**，把输出（或 ``--dump`` 存下的响应）发回，就能校准解析器。
     """
     config = module.config.WebSearchConfig()
     proxy = module.core.http.resolve_proxy(config.network.proxy_mode, config.network.proxy)
-    http = module.core.http.HttpClient(proxy=proxy, timeout_seconds=12.0)
+    http = module.core.http.HttpClient(proxy=proxy, timeout_seconds=15.0)
 
-    print("\n=== 以图搜源引擎连通性 ===")
+    print("\n=== 以图搜源：取一张测试图 ===")
+    test_image = None
     try:
-        for name, url in REVERSE_HOSTS:
+        # 注意：包是以合成名加载的，这里只能走已加载模块的属性，不能写绝对导入
+        bi = module.images.providers.bing_images
+        provider = bi.BingImagesProvider()
+        resp = await http.fetch(provider.build_url(IMAGE_QUERIES[0], limit=3), max_bytes=1048576)
+        cands = bi.parse_bing_images(resp.text)
+        if cands:
+            raw = await http.fetch_bytes(cands[0].url, max_bytes=3145728, timeout_seconds=15.0)
+            test_image = module.images.inbound.InboundImage(
+                source="probe",
+                url=cands[0].url,
+                content=raw.content,
+                mime_type=raw.content_type or "image/jpeg",
+            )
+            print(f"  测试图就绪: {len(raw.content) // 1024} KB  {cands[0].url[:60]}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  取图失败（改用最小 PNG 继续探测）: {type(exc).__name__}: {str(exc)[:60]}")
+
+    if test_image is None:
+        # 降级也要继续：探针的价值在于"跑通每个引擎并报告"，不能因为取图失败就不跑
+        test_image = module.images.inbound.InboundImage(
+            source="probe",
+            content=bytes.fromhex(
+                "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+                "0000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+            ),
+            mime_type="image/png",
+        )
+        print("  使用 1x1 占位 PNG（引擎会拒收，但足以验证连通性与错误路径）")
+
+    print("\n=== 以图搜源引擎：真实调用 ===")
+    try:
+        providers = module.images.reverse.build_reverse_providers(config)
+        for provider in providers:
             started = time.perf_counter()
             try:
-                response = await http.fetch(url, max_bytes=32768)
+                result = await provider.lookup(test_image, http)
                 elapsed = (time.perf_counter() - started) * 1000
-                # 能连上不代表能用：还要看返回的是不是壳页面
-                note = "（返回内容很短，可能是壳页面/需登录）" if len(response.text) < 4096 else ""
-                print(f"  OK   {name:12s} {elapsed:6.0f} ms  {response.status}  {len(response.text)} 字符{note}")
-            except Exception as exc:  # noqa: BLE001 - 探针要打印所有失败
+                if result.ok:
+                    top = result.sources[0]
+                    print(
+                        f"  OK   {provider.name:14s} {elapsed:6.0f} ms  {len(result.sources)} 条  "
+                        f"top: {(top.title or top.urls[0] if top.urls else '')[:40]}"
+                    )
+                else:
+                    print(f"  EMPTY{'':10s} {provider.name:14s} {elapsed:6.0f} ms  {result.error or '结构未识别'}")
+            except Exception as exc:  # noqa: BLE001
                 elapsed = (time.perf_counter() - started) * 1000
-                print(f"  FAIL {name:12s} {elapsed:6.0f} ms  {type(exc).__name__}: {str(exc)[:45]}")
+                print(f"  FAIL {provider.name:14s} {elapsed:6.0f} ms  {type(exc).__name__}: {str(exc)[:45]}")
     finally:
         await http.aclose()
 

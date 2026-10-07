@@ -44,7 +44,8 @@
     "send.image",
     "llm.generate",
     "tool.get_definitions",
-    "message.get_by_id"
+    "message.get_by_id",
+    "message.get_recent"
   ],
   "i18n": {
     "default_locale": "zh-CN"

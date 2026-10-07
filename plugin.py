@@ -24,7 +24,7 @@ from .core.ssrf import looks_like_url
 from .images.inbound import acquire_inbound_image
 from .images.picker import ImageHistory
 from .images.pipeline import ImageSearchPipeline, build_image_pipeline
-from .images.reverse.saucenao import SaucenaoProvider
+from .images.reverse import build_reverse_providers
 from .reading.fetcher import read_url as read_page
 from .reading.types import ReadingResult, SpecialSource
 from .search.providers.moegirl import MoegirlProvider, moegirl_special_source
@@ -181,21 +181,8 @@ class WebSearchPlugin(MaiBotPlugin):
         self._reverse_providers = self._build_reverse_providers()
 
     def _build_reverse_providers(self) -> list[Any]:
-        """装配反查引擎。
-
-        刻意**不**过滤掉"已启用但没填 Key"的引擎：让它真实地报出
-        "未配置 API Key"，比静默消失更容易排查。
-        """
-        config = self.config
-        providers: list[Any] = []
-        if config.reverse.saucenao_enabled:
-            providers.append(
-                SaucenaoProvider(
-                    api_key=config.reverse.saucenao_api_key,
-                    min_similarity=config.reverse.saucenao_min_similarity,
-                )
-            )
-        return providers
+        """装配反查引擎（免密钥引擎默认开，Key 引擎需显式开启）。"""
+        return build_reverse_providers(self.config)
 
     def _build_special_sources(self) -> list[SpecialSource]:
         """站点专用阅读通路。
@@ -479,18 +466,33 @@ class WebSearchPlugin(MaiBotPlugin):
 
     @Tool(
         "image_lookup",
-        brief_description="查看用户发来的图片，并尽力识别它的来源",
+        brief_description="用图片去互联网上搜相关的信息（来源、相似图）",
         detailed_description=(
-            "当用户**发了一张图片**并问「这是什么」「是谁」「出自哪部作品」「帮我看看这张图」时使用。\n"
-            "本工具会取得这张图片，并在配置了反查引擎时识别它的来源（作品 / 角色 / 出处）。\n"
+            "当用户**发了一张图片**并问「这是什么」「出自哪」「这是谁」「找原图」"
+            "「有没有一样的图」时使用。\n"
+            "本工具会把图片交给多个免密钥以图搜源引擎（ascii2d / IQDB / Bing 视觉搜索等），"
+            "返回图片来源、作者、相似度与相似图链接。\n"
+            "参数说明：\n"
+            "- message_id：string，选填。图片所在消息的 msg_id。\n"
+            "  用户先发图、再发文字问「这是什么」时，**图片在另一条消息里**，"
+            "把那条消息的 msg_id 填进来最准；不填则自动用最近一条带图的消息。\n"
             "使用要点：\n"
-            "- 图片内容本身要由你判断——你通常已经在上下文里看到了它；\n"
-            "- 如果需要找**相似图片**，请依据你看到的图像内容提取关键词，然后调用 image_search；\n"
-            "  本工具不做以图搜图，不要重复调用它；\n"
-            "- 如果本工具报告没有可用的搜源引擎，就依据图像内容直接回答，不要反复重试。"
+            "- 本工具就是用来**上网搜这张图**的；如果所有引擎都不可用，"
+            "它会明确告诉你「搜不到」——这时**不要重复调用**，"
+            "改为依据你已经在上下文里看到的图像内容直接回答；\n"
+            "- 如果用户想要的是**新的相似图片**（而不是这张图的出处），"
+            "请依据图像内容提取关键词后调用 image_search。"
         ),
+        parameters=[
+            ToolParameterInfo(
+                name="message_id",
+                param_type=ToolParamType.STRING,
+                description="图片所在消息的 msg_id（选填）",
+                required=False,
+            ),
+        ],
     )
-    async def handle_image_lookup(self, **kwargs: Any) -> dict[str, Any]:
+    async def handle_image_lookup(self, message_id: str = "", **kwargs: Any) -> dict[str, Any]:
         """取得用户图片并（在可用时）反查来源。"""
         config = self.config
         if not config.plugin.enabled:
@@ -498,13 +500,17 @@ class WebSearchPlugin(MaiBotPlugin):
         if not config.reverse.enabled:
             return {"success": False, "content": "以图搜图 / 图搜文功能已在配置中关闭。"}
 
-        message = kwargs.get("message") or {}
+        # 注意：@Tool 的载荷里**没有** message（那是 @Command 才注入的），
+        # 只有 stream_id / chat_id / group_id / user_id / platform。
         stream_id = str(kwargs.get("stream_id", "") or "")
+        chat_id = str(kwargs.get("chat_id", "") or "") or stream_id
         try:
             image = await acquire_inbound_image(
-                message=message,
+                message=kwargs.get("message"),
                 ctx=self.ctx,
+                chat_id=chat_id,
                 stream_id=stream_id,
+                message_id=str(message_id or ""),
                 http=self._http,
                 max_bytes=config.images.max_bytes,
                 timeout_seconds=config.network.timeout_seconds,

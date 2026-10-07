@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-__all__ = ["ReverseLookupResult", "ReverseProvider", "ReverseSource"]
+__all__ = ["ReverseLookupResult", "ReverseProvider", "ReverseSource", "build_reverse_providers"]
 
 
 @dataclass(slots=True)
@@ -77,3 +77,35 @@ class ReverseProvider(Protocol):
     async def lookup(self, image: Any, http: Any) -> ReverseLookupResult:
         """用图片（或图片地址）反查来源。"""
         ...
+
+
+def build_reverse_providers(config: Any) -> list[ReverseProvider]:
+    """按配置装配反查引擎（免密钥引擎默认开，Key 引擎需显式开启）。
+
+    刻意**不过滤**"已开启但缺 Key"的引擎：让它真实报出"未配置 API Key"，
+    比静默消失更容易排查。
+    """
+    from .ascii2d import Ascii2dProvider
+    from .bing_visual import BingVisualProvider
+    from .iqdb import IqdbProvider
+    from .saucenao import SaucenaoProvider
+    from .yandex import YandexProvider
+
+    reverse = config.reverse
+    providers: list[ReverseProvider] = []
+    if reverse.ascii2d_enabled:
+        providers.append(Ascii2dProvider())
+    if reverse.iqdb_enabled:
+        providers.append(IqdbProvider())
+    if reverse.bing_visual_enabled:
+        providers.append(BingVisualProvider())
+    if reverse.yandex_enabled:
+        providers.append(YandexProvider())
+    if reverse.saucenao_enabled:
+        providers.append(
+            SaucenaoProvider(
+                api_key=reverse.saucenao_api_key,
+                min_similarity=reverse.saucenao_min_similarity,
+            )
+        )
+    return providers

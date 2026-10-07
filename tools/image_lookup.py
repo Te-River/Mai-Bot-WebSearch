@@ -66,7 +66,15 @@ def render_lookup(
 ) -> str:
     """渲染反查结果与后续指引。"""
     size_kb = max(1, len(image.content) // 1024) if image.content else 0
-    lines = [f"已拿到用户发来的图片（{size_kb} KB，{image.mime_type or '未知类型'}）。"]
+    if image.content:
+        lines = [f"已拿到用户发来的图片（{size_kb} KB，{image.mime_type or '未知类型'}）。"]
+    else:
+        # 只有平台 URL、没拿到字节：还能用于以图搜源（部分引擎按 URL 查），
+        # 但**不能**把图交给模型观察——必须说清楚，不能假装拿到了。
+        lines = [
+            "只拿到了这张图的平台链接，没能取到图片本身（平台 URL 有时效且不保证公网可达），"
+            "因此我无法直接观察画面内容。"
+        ]
 
     found = [result for result in results if result.ok]
     errors = [result for result in results if result.error]
@@ -90,9 +98,9 @@ def render_lookup(
     for result in errors:
         lines.append(f"以图搜源（{result.engine}）失败：{result.error}")
 
-    if previewed:
+    if previewed and image.has_bytes:
         lines.append("我已经把这张图交给你观察，请直接依据图像内容回答用户。")
-    else:
+    elif image.has_bytes:
         lines.append("如果你需要重新观察图像内容，请把 reverse.preview_to_model 打开。")
 
     lines.append(

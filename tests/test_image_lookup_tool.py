@@ -168,7 +168,7 @@ class TestHandleImageLookup:
             stream_id="s1",
         )
         assert result["success"] is False
-        assert "再发一次" in result["content"]
+        assert "没找到你发的图" in result["content"]
 
     async def test_disabled_plugin_short_circuits(self, plugin: Any) -> None:
         config = plugin.get_default_config()
@@ -184,12 +184,15 @@ class TestHandleImageLookup:
         result = await plugin.handle_image_lookup(message=_message_with_image(), stream_id="s1")
         assert result["success"] is False
 
-    async def test_acquisition_error_is_readable(self, plugin: Any) -> None:
-        """拿不到图片时给出可读提示（此处：只有 URL 且没有可用的 HTTP 客户端）。"""
+    async def test_url_only_image_is_reported_honestly(self, plugin: Any) -> None:
+        """只有 URL、没有字节时不应失败，但必须说清"看不到画面"。
+
+        这条链接仍可能用于以图搜源（部分引擎按 URL 查），所以返回成功而非硬失败。
+        """
         plugin._http = None
         message = {"message_id": "m1", "raw_message": [{"type": "image", "data": "https://x/1.png"}]}
         result = await plugin.handle_image_lookup(message=message, stream_id="s1")
 
-        assert result["success"] is False
-        assert "再发一次" in result["content"]
+        assert result["success"] is True
+        assert "无法直接观察画面" in result["content"]
         assert "Traceback" not in result["content"]
