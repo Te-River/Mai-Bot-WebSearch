@@ -74,6 +74,15 @@ class ReverseProvider(Protocol):
         """是否具备运行条件（通常是有没有 API Key）。"""
         ...
 
+    def supports(self, image: Any) -> bool:
+        """能否处理这张图片。
+
+        有些引擎只吃**图片地址**（不能上传），而从聊天记录里拿到的图片往往只有字节。
+        这类引擎应该在这里就退出，而不是跑一次再报"不支持"——
+        报出来的失败会污染结果，也会挤掉早退时机。
+        """
+        ...
+
     async def lookup(self, image: Any, http: Any) -> ReverseLookupResult:
         """用图片（或图片地址）反查来源。"""
         ...

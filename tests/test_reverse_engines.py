@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -21,7 +22,9 @@ from mai_websearch_under_test.images.reverse import build_reverse_providers
 from mai_websearch_under_test.images.reverse.ascii2d import Ascii2dProvider, parse_ascii2d
 from mai_websearch_under_test.images.reverse.bing_visual import BingVisualProvider, parse_bing_visual
 from mai_websearch_under_test.images.reverse.iqdb import IqdbProvider, parse_iqdb
+from mai_websearch_under_test.images.reverse.saucenao import SaucenaoProvider
 from mai_websearch_under_test.images.reverse.yandex import YandexProvider, parse_yandex
+from mai_websearch_under_test.tools.image_lookup import run_reverse_lookup
 
 PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
@@ -301,3 +304,122 @@ class TestRegistry:
         config = WebSearchConfig()
         config.reverse.ascii2d_enabled = False
         assert "ascii2d" not in {p.name for p in build_reverse_providers(config)}
+
+
+# ------------------------------------------------------------------ supports + 编排
+
+
+class ScriptedProvider:
+    """可控时序的假引擎，用来验证编排逻辑。"""
+
+    requires_key = False
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        delay: float = 0.0,
+        succeed: bool = False,
+        supported: bool = True,
+    ) -> None:
+        self.name = name
+        self._delay = delay
+        self._succeed = succeed
+        self._supported = supported
+        self.cancelled = False
+        self.calls = 0
+
+    @property
+    def configured(self) -> bool:
+        return True
+
+    def supports(self, image: Any) -> bool:
+        return self._supported
+
+    async def lookup(self, image: Any, http: Any) -> Any:
+        self.calls += 1
+        try:
+            await asyncio.sleep(self._delay)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        if self._succeed:
+            from mai_websearch_under_test.images.reverse import ReverseLookupResult, ReverseSource
+
+            return ReverseLookupResult(engine=self.name, sources=[ReverseSource(title="命中", similarity=90.0)])
+        from mai_websearch_under_test.images.reverse import ReverseLookupResult
+
+        return ReverseLookupResult(engine=self.name, error="失败")
+
+
+def _image() -> InboundImage:
+    return InboundImage(source="t", content=PNG)
+
+
+class TestReverseOrchestration:
+    """**真机踩过的坑**：早退条件是"完成一个"而不是"成功一个"。"""
+
+    async def test_instant_failure_does_not_cancel_slow_engine(self) -> None:
+        """秒失败的引擎不能把还在跑、可能能用的引擎挤掉。"""
+        fast_fail = ScriptedProvider("fast-fail", delay=0.0, succeed=False)
+        slow_ok = ScriptedProvider("slow-ok", delay=0.2, succeed=True)
+        results = await run_reverse_lookup([fast_fail, slow_ok], _image(), None, deadline_seconds=2.0)
+
+        assert slow_ok.calls == 1, "慢引擎应该被真正执行到"
+        assert any(result.ok for result in results), "应该拿到成功结果"
+        assert not slow_ok.cancelled
+
+    async def test_waits_until_deadline_when_all_fail(self) -> None:
+        first = ScriptedProvider("a", delay=0.0, succeed=False)
+        second = ScriptedProvider("b", delay=0.1, succeed=False)
+        results = await run_reverse_lookup([first, second], _image(), None, deadline_seconds=2.0)
+
+        assert second.calls == 1, "一路失败时不能早退，要把其它引擎也跑完"
+        assert not any(result.ok for result in results)
+
+    async def test_unsupported_engine_is_skipped_entirely(self) -> None:
+        """处理不了当前输入的引擎不参与，也不该被报成失败。"""
+        unsupported = ScriptedProvider("yandex-like", supported=False)
+        usable = ScriptedProvider("ascii2d-like", delay=0.0, succeed=False)
+        results = await run_reverse_lookup([unsupported, usable], _image(), None, deadline_seconds=1.0)
+
+        assert unsupported.calls == 0, "不支持的引擎根本不该被调用"
+        assert [result.engine for result in results] == ["ascii2d-like"]
+
+    async def test_all_unsupported_returns_empty(self) -> None:
+        unsupported = ScriptedProvider("yandex-like", supported=False)
+        assert await run_reverse_lookup([unsupported], _image(), None, deadline_seconds=1.0) == []
+
+    async def test_result_order_follows_declaration(self) -> None:
+        a = ScriptedProvider("a", delay=0.0, succeed=False)
+        b = ScriptedProvider("b", delay=0.0, succeed=True)
+        results = await run_reverse_lookup([a, b], _image(), None, deadline_seconds=2.0)
+        assert [result.engine for result in results] == ["a", "b"]
+
+    async def test_deadline_cancels_and_reports_stragglers(self) -> None:
+        """超时的引擎要记成可见结果，不能静默消失。"""
+        slow = ScriptedProvider("slow", delay=5.0, succeed=True)
+        results = await run_reverse_lookup([slow], _image(), None, deadline_seconds=0.1)
+
+        assert len(results) == 1
+        assert results[0].ok is False
+        assert "时限" in results[0].error
+
+    async def test_no_providers_returns_empty(self) -> None:
+        assert await run_reverse_lookup([], _image(), None) == []
+
+
+class TestYandexSupports:
+    def test_needs_url(self) -> None:
+        engine = YandexProvider()
+        assert engine.supports(InboundImage(source="t", url="https://x/1.png")) is True
+        assert engine.supports(InboundImage(source="t", content=PNG)) is False
+
+    def test_upload_engines_accept_bytes(self) -> None:
+        for engine in (Ascii2dProvider(), IqdbProvider(), BingVisualProvider()):
+            assert engine.supports(InboundImage(source="t", content=PNG)) is True
+
+    def test_saucenao_accepts_both(self) -> None:
+        engine = SaucenaoProvider(api_key="k")
+        assert engine.supports(InboundImage(source="t", content=PNG)) is True
+        assert engine.supports(InboundImage(source="t", url="https://x/1.png")) is True

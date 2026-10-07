@@ -124,6 +124,10 @@ class SaucenaoProvider:
         """没有 API Key 就没法用。"""
         return bool(self._api_key)
 
+    def supports(self, image: Any) -> bool:
+        """地址和字节都能处理。"""
+        return bool(getattr(image, "url", "") or getattr(image, "content", b""))
+
     def build_query_url(self, image_url: str) -> str:
         """用图片地址反查（免上传，最快）。"""
         params = {

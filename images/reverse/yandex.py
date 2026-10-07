@@ -123,6 +123,10 @@ class YandexProvider:
         """免密钥，永远可用。"""
         return True
 
+    def supports(self, image: Any) -> bool:
+        """只支持按图片地址反查——没有 URL 就直接不参与，省得跑一次再报错。"""
+        return bool(getattr(image, "url", ""))
+
     def build_url(self, image_url: str) -> str:
         return f"{self._endpoint}/images/search?rpt=imageview&url={quote(image_url, safe='')}"
 

@@ -90,6 +90,10 @@ class IqdbProvider:
         """免密钥，永远可用。"""
         return True
 
+    def supports(self, image: Any) -> bool:
+        """地址和字节都能处理。"""
+        return bool(getattr(image, "url", "") or getattr(image, "content", b""))
+
     async def lookup(self, image: Any, http: Any) -> ReverseLookupResult:
         """反查来源。
 

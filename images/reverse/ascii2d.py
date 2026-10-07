@@ -109,6 +109,10 @@ class Ascii2dProvider:
         """免密钥，永远可用。"""
         return True
 
+    def supports(self, image: Any) -> bool:
+        """地址和字节都能处理。"""
+        return bool(getattr(image, "url", "") or getattr(image, "content", b""))
+
     def build_url(self, image_url: str) -> str:
         """按图片地址检索（免上传）。"""
         return f"{self._endpoint}/search/url/{quote(image_url, safe='')}"

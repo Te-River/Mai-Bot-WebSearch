@@ -120,6 +120,10 @@ class BingVisualProvider:
         """免密钥，永远可用。"""
         return True
 
+    def supports(self, image: Any) -> bool:
+        """地址和字节都能处理。"""
+        return bool(getattr(image, "url", "") or getattr(image, "content", b""))
+
     def _results_url(self, location: str) -> str:
         if location.startswith("http"):
             return location

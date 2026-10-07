@@ -84,10 +84,10 @@ class TestRenderLookup:
         return InboundImage(source="message", content=PNG, mime_type="image/png")
 
     def test_reports_no_engine_available(self) -> None:
-        """没有引擎时必须说清楚，并给出下一步，而不是沉默。"""
+        """没有引擎可用时必须说清楚，并明确"别重试"，而不是沉默。"""
         text = render_lookup(image=self._image(), results=[], previewed=False)
-        assert "没有可用的以图搜源引擎" in text
-        assert "image_search" in text
+        assert "没有可用于这张图的反查引擎" in text
+        assert "不要重复调用" in text
 
     def test_renders_sources(self) -> None:
         result = ReverseLookupResult(
@@ -106,15 +106,25 @@ class TestRenderLookup:
         text = render_lookup(image=self._image(), results=[result], previewed=False)
         assert "超出配额" in text
 
-    def test_guides_to_image_search(self) -> None:
-        """必须明确告诉模型"找相似图用 image_search"，避免它反复调用本工具。"""
-        text = render_lookup(image=self._image(), results=[], previewed=True)
+    def test_guides_to_image_search_on_success(self) -> None:
+        """搜到来源时，才提示"想要相似图请用 image_search"。"""
+        result = ReverseLookupResult(
+            engine="ascii2d",
+            sources=[ReverseSource(title="初音ミク", similarity=90.0)],
+        )
+        text = render_lookup(image=self._image(), results=[result], previewed=False)
         assert "image_search" in text
+
+    def test_no_retry_advice_when_all_engines_failed(self) -> None:
+        """全部引擎失败时要说"别重试"，而不是继续引导别的工具。"""
+        """**真机踩过**：planner 反复重调 image_lookup，白白耗掉几十秒。"""
+        results = [ReverseLookupResult(engine="ascii2d", error="ConnectError")]
+        text = render_lookup(image=self._image(), results=results, previewed=True)
         assert "不要重复调用" in text
+        assert "image_search" not in text
 
     def test_mentions_preview_state(self) -> None:
         assert "交给你观察" in render_lookup(image=self._image(), results=[], previewed=True)
-        assert "preview_to_model" in render_lookup(image=self._image(), results=[], previewed=False)
 
 
 # ------------------------------------------------------------------ 工具处理函数
@@ -122,12 +132,12 @@ class TestRenderLookup:
 
 class TestHandleImageLookup:
     async def test_returns_guidance_without_engines(self, plugin: Any) -> None:
-        """没有配置反查引擎时，仍然要把图片链路走通并给出指引。"""
+        """没有搜到任何来源时，仍要把图片链路走通并明确"别重试"。"""
         plugin._http = object()
         result = await plugin.handle_image_lookup(message=_message_with_image(), stream_id="s1")
 
         assert result["success"] is True
-        assert "image_search" in result["content"]
+        assert "已拿到用户发来的图片" in result["content"]
         assert "content_items" not in result, "默认不回传图片（模型通常已经看到）"
 
     async def test_preview_adds_content_item(self, plugin: Any) -> None:
