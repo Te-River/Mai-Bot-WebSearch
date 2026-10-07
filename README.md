@@ -212,6 +212,8 @@ python tests/live_probe.py         # 实网探针，决定默认引擎集合
 * `tests/smoke_live.py` 走的是**插件自己的工具处理函数**（配置 → 处理器 → 管线 → 渲染），
   是"组装好的插件能不能用"的验收脚本。**把它放进 `plugins/` 后运行它，就是一次真实环境验收。**
 
+真机验收的完整步骤（含常见失败对照表）见 [`docs/VERIFY.md`](docs/VERIFY.md)。
+
 设计文档见 [`docs/PLAN.md`](docs/PLAN.md)。
 
 ## 许可证
