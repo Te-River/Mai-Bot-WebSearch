@@ -19,3 +19,6 @@ htmlcov/
 logs/
 *.log
 probe-*.json
+
+# 打包产物（用于手动安装测试）
+*.zip
