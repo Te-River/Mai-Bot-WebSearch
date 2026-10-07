@@ -1,13 +1,15 @@
-"""发布门禁：能力声明一致性、组件注册、启动自检、二次总结接线。
+"""发布门禁：依赖声明、能力一致性、组件注册、启动自检、二次总结接线。
 
-这些检查是为了拦住"配置项存在但没接线""声明了能力却没用到""工具没注册上"这类
-**测试全绿但发出去是坏的**问题——本项目已经真实发生过前两类。
+这些检查是为了拦住"配置项存在但没接线""声明了能力却没用到""依赖忘了声明"这类
+**测试全绿但发出去是坏的**问题——本项目三类都真实发生过。
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,12 @@ from mai_websearch_under_test.search.types import SearchHit
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = json.loads((PLUGIN_ROOT / "_manifest.json").read_text(encoding="utf-8"))
+
+# 宿主自带的 SDK，不需要在 dependencies 里声明
+HOST_PROVIDED_PACKAGES = frozenset({"maibot_sdk"})
+# 可选增强：**刻意**不进 manifest 依赖（免得所有用户都装十几 MB），
+# 靠 find_spec 探测 + 函数内延迟导入，装不上就退到内置抽取。
+OPTIONAL_PACKAGES = frozenset({"trafilatura", "readability"})
 
 # ctx 的命名空间里，哪些**不是**能力（不需要声明）
 NON_CAPABILITY_NAMESPACES = frozenset({"logger", "paths"})
@@ -67,6 +75,92 @@ def _used_capabilities() -> set[str]:
                 continue
             used.add(f"{namespace}.{method}")
     return used
+
+
+# ------------------------------------------------------------------ 依赖声明
+
+
+def _third_party_imports() -> set[str]:
+    """插件源码里出现的第三方顶层包名（含可选增强，不含标准库与宿主 SDK）。"""
+    found: set[str] = set()
+    for path in _plugin_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                found.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                found.add(node.module.split(".")[0])
+    return {name for name in found if name not in sys.stdlib_module_names and name not in HOST_PROVIDED_PACKAGES}
+
+
+def _declared_dependencies() -> set[str]:
+    """manifest 里声明的 Python 包名。"""
+    return {
+        str(dep.get("name"))
+        for dep in MANIFEST.get("dependencies", [])
+        if isinstance(dep, dict) and dep.get("name")
+    }
+
+
+def test_scanner_finds_known_third_party_imports() -> None:
+    """先证明扫描器有效，否则下面的断言可能因为"什么都没扫到"而假绿。"""
+    assert {"httpx", "selectolax"} <= _third_party_imports()
+
+
+def test_every_required_import_is_declared() -> None:
+    """**真实事故（v1.0.0）**：manifest 的 ``dependencies`` 是空的，
+    装进真实麦麦后直接 ``No module named 'selectolax'`` 启动失败。
+
+    宿主只安装 manifest 里声明的依赖。开发机上 ``requirements-dev.txt`` 已经装好了，
+    所以测试全绿；**少声明一个包，只有真机能发现**——所以在 CI 里做静态比对。
+    """
+    required = _third_party_imports() - OPTIONAL_PACKAGES
+    missing = sorted(required - _declared_dependencies())
+    assert not missing, f"代码导入了但未在 manifest.dependencies 声明：{missing}"
+
+
+def test_declared_dependencies_are_actually_imported() -> None:
+    """反向：声明了却没导入，等于让宿主白装一个包。"""
+    unused = sorted(_declared_dependencies() - _third_party_imports())
+    assert not unused, f"声明了但代码未导入的依赖：{unused}"
+
+
+def test_dependency_specs_do_not_pin_tightly() -> None:
+    """版本约束要松。
+
+    宿主会做"与主程序依赖无交集就拒绝加载"的冲突检测；
+    写成 ``==0.28.1`` 这种，主程序换个版本就会把插件挡在门外。
+    """
+    for dep in MANIFEST.get("dependencies", []):
+        spec = str(dep.get("version_spec") or "")
+        assert not spec.startswith("=="), f"{dep.get('name')} 的版本约束过紧：{spec}"
+
+
+def test_optional_extras_stay_optional() -> None:
+    """可选增强必须**真的可选**：不在依赖里 + 不在模块顶层导入 + 有可用性探测。
+
+    否则"可选"只是注释里的一句话，用户装不上就整个插件崩。
+    """
+    assert not (OPTIONAL_PACKAGES & _declared_dependencies()), "可选包不应进 manifest 依赖"
+    source = (PLUGIN_ROOT / "reading" / "extract.py").read_text(encoding="utf-8")
+    module_level: set[str] = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Import):
+            module_level.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            module_level.add(node.module.split(".")[0])
+    for name in OPTIONAL_PACKAGES:
+        assert name not in module_level, f"{name} 在模块顶层被导入，用户没装就直接崩"
+        assert re.search(rf"find_spec\([\"']{name}[\"']\)", source), f"{name} 缺少 find_spec 可用性探测"
+
+
+def test_manifest_has_no_bom() -> None:
+    """宿主用 ``utf-8`` 解析清单：带 BOM 会让它直接 ``JSONDecodeError`` 加载失败。
+
+    （一个编辑器"另存为 UTF-8 with BOM"就能造成这个后果。）
+    """
+    raw = (PLUGIN_ROOT / "_manifest.json").read_bytes()
+    assert not raw.startswith(b"\xef\xbb\xbf"), "_manifest.json 带 UTF-8 BOM，宿主会解析失败"
 
 
 # ------------------------------------------------------------------ 能力一致性
@@ -287,8 +381,10 @@ def test_license_matches_manifest() -> None:
     assert MANIFEST["license"].lower() in (PLUGIN_ROOT / "LICENSE").read_text(encoding="utf-8").lower()
 
 
-def test_version_is_release_ready() -> None:
-    """正式发布用 1.0.0，且 manifest 与代码必须一致。"""
-    version_py = (PLUGIN_ROOT / "version.py").read_text(encoding="utf-8")
-    assert '__version__ = "1.0.0"' in version_py
-    assert MANIFEST["version"] == "1.0.0"
+def test_version_is_valid_release_version() -> None:
+    """插件中心要求**严格三段式**：``x.y.z``，不带 ``-rc1`` / ``+build`` 后缀。"""
+    matched = re.search(r'__version__\s*=\s*"([^"]+)"', (PLUGIN_ROOT / "version.py").read_text(encoding="utf-8"))
+    assert matched is not None, "version.py 里没有 __version__"
+    version = matched.group(1)
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), f"版本号不是三段式：{version}"
+    assert MANIFEST["version"] == version, "manifest 与 version.py 不一致"

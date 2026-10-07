@@ -27,7 +27,18 @@
       "value": "globe"
     }
   },
-  "dependencies": [],
+  "dependencies": [
+    {
+      "type": "python_package",
+      "name": "httpx",
+      "version_spec": ">=0.24.0"
+    },
+    {
+      "type": "python_package",
+      "name": "selectolax",
+      "version_spec": ">=0.3.0"
+    }
+  ],
   "capabilities": [
     "send.text",
     "send.image",

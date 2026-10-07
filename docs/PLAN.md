@@ -876,6 +876,35 @@ manifest `capabilities`（**只声明实际用到的**）：
 相对导入、组件注册与 `ManifestValidator` 的严格规则，但"宿主真的把插件拉起来并触发命令"
 这一步需要完整麦麦环境（配置、适配器、模型），无法在纯代码环境里替代。
 
+#### 真机首测：**加载失败**（`No module named 'selectolax'`）
+
+真机一装就炸，而且**全部 415 项离线测试都是绿的**。
+
+| 项 | 内容 |
+| --- | --- |
+| 现象 | 真机 `启动失败`，失败原因 `No module named 'selectolax'`（插件 ID / 版本、安装路径均正常） |
+| 根因 | `_manifest.json` 的 `dependencies` 是**空数组**——计划 P0 就写明要声明 `httpx` + `selectolax`，留了空数组后**再没回来填** |
+| 为什么测试没拦住 | 开发机由 `requirements-dev.txt` 装好了依赖；且 `selectolax` 是模块级导入（`core/html_util.py`），一缺就在 `on_load` 之前崩。`httpx` 因主程序自身也用（已存在）而侥幸没暴露 |
+| 为什么真机能发现 | 宿主**只安装 manifest 里声明的依赖**。少声明一个包，只有真机才看得见 |
+
+**修复**：`dependencies` 补上 `httpx>=0.24.0` 与 `selectolax>=0.3.0`（约束放宽——
+宿主有"与主程序依赖无交集就拒绝加载"的冲突检测，写死版本会把插件挡在门外）。
+
+**新增的三道门禁**（`tests/test_release_readiness.py`，均做过**负向验证**：清空依赖即变红）：
+
+| 门禁 | 拦住的问题 |
+| --- | --- |
+| `test_every_required_import_is_declared` | 用 `ast` 扫描全部第三方顶层导入，逐个比对 manifest —— **本事故** |
+| `test_declared_dependencies_are_actually_imported` | 反向：声明了却没导入，让宿主白装包 |
+| `test_optional_extras_stay_optional` | `trafilatura` / `readability` 必须"真的可选"：不在依赖里、不在模块顶层导入、有 `find_spec` 探测 |
+
+顺带发现并补上：宿主用 `utf-8` 解析清单，**带 BOM 会直接 `JSONDecodeError`**
+（一次 `Set-Content` 就复现了）→ 增加 `test_manifest_has_no_bom`。
+
+> 教训：**"能不能加载"这件事，离线测试的覆盖面天然是缺的**——
+> 只要用到开发机上已存在、而用户机上不存在的资源，测试就会全绿。
+> 所以要用**静态比对**（代码导入 vs manifest 声明）把这类缺口补上，而不是靠运行时运气。
+
 
 
 
